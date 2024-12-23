@@ -82,6 +82,37 @@
 		</plugins>
 	</build>
 
+	<profiles>
+		<profile>
+			<id>production</id>
+			<properties>
+				<vaadin.productionMode>true</vaadin.productionMode>
+			</properties>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>com.vaadin</groupId>
+						<artifactId>vaadin-maven-plugin</artifactId>
+						<version>24.4.12</version>
+						<executions>
+							<execution>
+								<goals>
+									<goal>build-frontend</goal>
+								</goals>
+							</execution>
+						</executions>
+						<configuration>
+							<!-- To always force an optimized production bundle build set this configuration to 'true' -->
+							<!-- To possibly use the pre-compiled production bundle remove or set to 'false' -->
+							<forceProductionBuild>true</forceProductionBuild>
+							<!-- To have reproducible build by running 'npm ci' -->
+							<ciBuild>true</ciBuild>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 	<repositories>
 		<repository>
 			<id>central</id>
