@@ -12,6 +12,7 @@ import com.github.jelmerbouma1985.stravadatadashboard.web.dto.ActivityData;
 import com.github.jelmerbouma1985.stravadatadashboard.web.dto.StravaComparatorData;
 import com.github.jelmerbouma1985.stravadatadashboard.web.dto.activities.StravaActivity;
 import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.combobox.MultiSelectComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
@@ -55,36 +56,77 @@ public class CompareView extends VerticalLayout implements BeforeEnterObserver {
         endDatePicker1.addValueChangeListener((listener) -> compareButton.setEnabled(enableButton(startDatePicker1, endDatePicker1, startDatePicker2, endDatePicker2)));
         endDatePicker2.addValueChangeListener((listener) -> compareButton.setEnabled(enableButton(startDatePicker1, endDatePicker1, startDatePicker2, endDatePicker2)));
 
+        final List<StravaComparatorData> data = new ArrayList<>();
+        MultiSelectComboBox<String> comboBox = new MultiSelectComboBox<>();
+        comboBox.setAutoExpand(MultiSelectComboBox.AutoExpandMode.HORIZONTAL);
+        comboBox.setEnabled(false);
+        comboBox.addValueChangeListener((listener) -> {
+            addCharts(data.getFirst(), data.getLast(), listener.getValue().stream().sorted().toList());
+        });
+
         HorizontalLayout fromToDates1 = new HorizontalLayout(startDatePicker1, endDatePicker1);
         HorizontalLayout fromToDates2 = new HorizontalLayout(startDatePicker2, endDatePicker2);
-        add(fromToDates1, fromToDates2, compareButton);
+        HorizontalLayout compareAndFilter = new HorizontalLayout(compareButton, comboBox);
+        add(fromToDates1, fromToDates2, compareAndFilter);
 
         compareButton.addClickListener((event -> {
-            var dataFirstDates = stravaService.getActivitySummary(token, startDatePicker1.getValue(), endDatePicker1.getValue());
-            var dataSecondDates = stravaService.getActivitySummary(token, startDatePicker2.getValue(), endDatePicker2.getValue());
-            remove(getChildren().filter(c -> c.getClass().getSimpleName().equals(ApexCharts.class.getSimpleName())).toList());
-
-            addTotalActivitiesChart(dataFirstDates, dataSecondDates);
-            addElapsedTimeChart(dataFirstDates, dataSecondDates);
-            addTotalKilometersChart(dataFirstDates, dataSecondDates);
-            addTotalElevationChart(dataFirstDates, dataSecondDates);
+            data.clear();
+            data.add(stravaService.getActivitySummary(token, startDatePicker1.getValue(), endDatePicker1.getValue()));
+            data.add(stravaService.getActivitySummary(token, startDatePicker2.getValue(), endDatePicker2.getValue()));
+            comboBox.setEnabled(true);
+            fillComboBox(comboBox, data.getFirst(), data.getLast());
+            addCharts(data.getFirst(), data.getLast(), List.of());
         }));
     }
 
+    private void addCharts(StravaComparatorData dataFirstDates,
+                           StravaComparatorData dataSecondDates,
+                           List<String> filter) {
+
+        remove(getChildren().filter(c -> c.getClass().getSimpleName().equals(ApexCharts.class.getSimpleName())).toList());
+        addTotalActivitiesChart(dataFirstDates, dataSecondDates, filter);
+        addElapsedTimeChart(dataFirstDates, dataSecondDates, filter);
+        addTotalKilometersChart(dataFirstDates, dataSecondDates, filter);
+        addTotalElevationChart(dataFirstDates, dataSecondDates, filter);
+    }
+
+    private void fillComboBox(
+            MultiSelectComboBox<String> comboBox,
+            StravaComparatorData dataFirstDates,
+            StravaComparatorData dataSecondDates) {
+        comboBox.clear();
+        List<String> activityTypes = new ArrayList<>();
+        Stream.concat(dataFirstDates.getActivities().stream(), dataSecondDates.getActivities().stream())
+                .map(ActivityData::getSportType)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toCollection(() -> activityTypes));
+
+        comboBox.setItems(activityTypes);
+    }
+
     private void addTotalActivitiesChart(StravaComparatorData dataFirstDates,
-                                         StravaComparatorData dataSecondDates) {
+                                         StravaComparatorData dataSecondDates,
+                                         List<String> filter) {
 
         List<String> chartColumns = new ArrayList<>();
         chartColumns.addFirst("Total");
         Stream.concat(dataFirstDates.getActivities().stream(), dataSecondDates.getActivities().stream())
                 .map(ActivityData::getSportType)
+                .filter(type -> filter.isEmpty() || filter.contains(type))
                 .distinct()
                 .collect(Collectors.toCollection(() -> chartColumns));
 
         List<Object> dataRange1 = new ArrayList<>();
-        dataRange1.add(dataFirstDates.getTotalActivities());
+        dataRange1.add(dataFirstDates.getActivities().stream()
+                               .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                               .mapToInt(ActivityData::getTotalActivities)
+                               .sum());
         List<Object> dataRange2 = new ArrayList<>();
-        dataRange2.add(dataSecondDates.getTotalActivities());
+        dataRange2.add(dataSecondDates.getActivities().stream()
+                               .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                               .mapToInt(ActivityData::getTotalActivities)
+                               .sum());
 
         for (String activity : chartColumns) {
             if (!activity.equals("Total")) {
@@ -97,19 +139,27 @@ public class CompareView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void addElapsedTimeChart(StravaComparatorData dataFirstDates,
-                                     StravaComparatorData dataSecondDates) {
+                                     StravaComparatorData dataSecondDates,
+                                     List<String> filter) {
 
         List<String> chartColumns = new ArrayList<>();
         chartColumns.addFirst("Total");
         Stream.concat(dataFirstDates.getActivities().stream(), dataSecondDates.getActivities().stream())
                 .map(ActivityData::getSportType)
+                .filter(type -> filter.isEmpty() || filter.contains(type))
                 .distinct()
                 .collect(Collectors.toCollection(() -> chartColumns));
 
         List<Object> dataRange1 = new ArrayList<>();
-        dataRange1.add(minutes(dataFirstDates.getActivities().stream().map(ActivityData::getActivityData).mapToLong(StravaActivity::getElapsedTime).sum()));
+        dataRange1.add(minutes(dataFirstDates.getActivities().stream()
+                                       .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                                       .map(ActivityData::getActivityData)
+                                       .mapToLong(StravaActivity::getElapsedTime).sum()));
         List<Object> dataRange2 = new ArrayList<>();
-        dataRange2.add(minutes(dataSecondDates.getActivities().stream().map(ActivityData::getActivityData).mapToLong(StravaActivity::getElapsedTime).sum()));
+        dataRange2.add(minutes(dataSecondDates.getActivities().stream()
+                                       .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                                       .map(ActivityData::getActivityData)
+                                       .mapToLong(StravaActivity::getElapsedTime).sum()));
 
         for (String activity : List.copyOf(chartColumns)) {
             if (!activity.equals("Total")) {
@@ -126,7 +176,7 @@ public class CompareView extends VerticalLayout implements BeforeEnterObserver {
                         .findFirst()
                         .orElse(0L);
 
-                if(totalElapsedTimeRange1 > 0L || totalElapsedTimeRange2 > 0L) {
+                if (totalElapsedTimeRange1 > 0L || totalElapsedTimeRange2 > 0L) {
                     dataRange1.add(minutes(totalElapsedTimeRange1));
                     dataRange2.add(minutes(totalElapsedTimeRange2));
                 } else {
@@ -139,18 +189,27 @@ public class CompareView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void addTotalKilometersChart(StravaComparatorData dataFirstDates,
-                                     StravaComparatorData dataSecondDates) {
+                                         StravaComparatorData dataSecondDates,
+                                         List<String> filter) {
         List<String> chartColumns = new ArrayList<>();
         chartColumns.addFirst("Total");
         Stream.concat(dataFirstDates.getActivities().stream(), dataSecondDates.getActivities().stream())
                 .map(ActivityData::getSportType)
+                .filter(type -> filter.isEmpty() || filter.contains(type))
                 .distinct()
                 .collect(Collectors.toCollection(() -> chartColumns));
 
         List<Object> dataRange1 = new ArrayList<>();
-        dataRange1.add(dataFirstDates.getActivities().stream().map(ActivityData::getActivityData).map(StravaActivity::getKilometers).reduce(BigDecimal.ZERO, BigDecimal::add));
+        dataRange1.add(dataFirstDates.getActivities().stream()
+                               .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                               .map(ActivityData::getActivityData).map(StravaActivity::getKilometers)
+                               .reduce(BigDecimal.ZERO, BigDecimal::add));
         List<Object> dataRange2 = new ArrayList<>();
-        dataRange2.add(dataSecondDates.getActivities().stream().map(ActivityData::getActivityData).map(StravaActivity::getKilometers).reduce(BigDecimal.ZERO, BigDecimal::add));
+        dataRange2.add(dataSecondDates.getActivities().stream()
+                               .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                               .map(ActivityData::getActivityData)
+                               .map(StravaActivity::getKilometers)
+                               .reduce(BigDecimal.ZERO, BigDecimal::add));
 
         for (String activity : List.copyOf(chartColumns)) {
             if (!activity.equals("Total")) {
@@ -172,19 +231,29 @@ public class CompareView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void addTotalElevationChart(StravaComparatorData dataFirstDates,
-                                        StravaComparatorData dataSecondDates) {
+                                        StravaComparatorData dataSecondDates,
+                                        List<String> filter) {
 
         List<String> chartColumns = new ArrayList<>();
         chartColumns.addFirst("Total");
         Stream.concat(dataFirstDates.getActivities().stream(), dataSecondDates.getActivities().stream())
                 .map(ActivityData::getSportType)
+                .filter(type -> filter.isEmpty() || filter.contains(type))
                 .distinct()
                 .collect(Collectors.toCollection(() -> chartColumns));
 
         List<Object> dataRange1 = new ArrayList<>();
-        dataRange1.add(dataFirstDates.getActivities().stream().map(ActivityData::getActivityData).map(StravaActivity::getTotalElevationGain).reduce(BigDecimal.ZERO, BigDecimal::add));
+        dataRange1.add(dataFirstDates.getActivities().stream()
+                               .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                               .map(ActivityData::getActivityData)
+                               .map(StravaActivity::getTotalElevationGain)
+                               .reduce(BigDecimal.ZERO, BigDecimal::add));
         List<Object> dataRange2 = new ArrayList<>();
-        dataRange2.add(dataSecondDates.getActivities().stream().map(ActivityData::getActivityData).map(StravaActivity::getTotalElevationGain).reduce(BigDecimal.ZERO, BigDecimal::add));
+        dataRange2.add(dataSecondDates.getActivities().stream()
+                               .filter(activityData -> filter.isEmpty() || filter.contains(activityData.getSportType()))
+                               .map(ActivityData::getActivityData)
+                               .map(StravaActivity::getTotalElevationGain)
+                               .reduce(BigDecimal.ZERO, BigDecimal::add));
 
         for (String activity : List.copyOf(chartColumns)) {
             if (!activity.equals("Total")) {
